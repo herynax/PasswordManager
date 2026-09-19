@@ -177,3 +177,95 @@ fn generate_outputs_valid_password() {
     let password = String::from_utf8_lossy(&output.stdout).trim().to_string();
     assert_eq!(password.chars().count(), 24);
 }
+
+#[test]
+fn backup_to_file_and_overwrite() {
+    let dir = tmp_dir("backup");
+    let vault = dir.join("vault.enc");
+    let (code, _, err) = run(
+        &vault,
+        &["init", "--passphrase", "correct horse battery staple"],
+    );
+    assert_eq!(code, 0, "init stderr: {err}");
+
+    // backup to an explicit file path
+    let b1 = dir.join("backups").join("my-vault.enc");
+    let (code, out, err) = run(&vault, &["backup", b1.to_str().unwrap()]);
+    assert_eq!(code, 0, "backup stderr: {err}");
+    assert!(out.contains("backup ok"));
+    assert!(b1.exists());
+    let first = std::fs::read(&b1).unwrap();
+    assert_eq!(first, std::fs::read(&vault).unwrap());
+
+    // add an entry -> vault changes
+    let (code, _, err) = run(
+        &vault,
+        &[
+            "add",
+            "--title",
+            "GitHub",
+            "--username",
+            "u",
+            "--password",
+            "pw",
+            "--url",
+            "https://g",
+        ],
+    );
+    assert_eq!(code, 0, "add stderr: {err}");
+
+    // re-backup overwrites the same file
+    let (code, _, err) = run(&vault, &["backup", b1.to_str().unwrap()]);
+    assert_eq!(code, 0, "re-backup stderr: {err}");
+    let second = std::fs::read(&b1).unwrap();
+    assert_ne!(first, second, "backup must reflect new vault");
+    assert_eq!(second, std::fs::read(&vault).unwrap());
+}
+
+#[test]
+fn backup_to_directory() {
+    let dir = tmp_dir("backupdir");
+    let vault = dir.join("vault.enc");
+    let (code, _, err) = run(
+        &vault,
+        &["init", "--passphrase", "correct horse battery staple"],
+    );
+    assert_eq!(code, 0, "init stderr: {err}");
+
+    let dest_dir = dir.join("stick");
+    std::fs::create_dir_all(&dest_dir).unwrap();
+    let trailing = format!("{}/", dest_dir.display());
+    let (code, out, err) = run(&vault, &["backup", &trailing]);
+    assert_eq!(code, 0, "dir backup stderr: {err}");
+    assert!(out.contains("passman-vault-backup.enc"));
+
+    let backup = dest_dir.join("passman-vault-backup.enc");
+    assert!(backup.exists());
+    assert_eq!(
+        std::fs::read(&backup).unwrap(),
+        std::fs::read(&vault).unwrap()
+    );
+}
+
+#[test]
+fn backup_rejects_wrong_passphrase() {
+    let dir = tmp_dir("backupw");
+    let vault = dir.join("vault.enc");
+    let (code, _, err) = run(
+        &vault,
+        &["init", "--passphrase", "correct horse battery staple"],
+    );
+    assert_eq!(code, 0, "init stderr: {err}");
+
+    let output = Command::new(bin())
+        .args(["backup"])
+        .arg(dir.join("x.enc"))
+        .arg("--path")
+        .arg(&vault)
+        .env("PASSMAN_PASSPHRASE", "wrong passphrase")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code().unwrap(), 1);
+    assert!(String::from_utf8_lossy(&output.stderr).contains("authentication"));
+    assert!(!dir.join("x.enc").exists());
+}

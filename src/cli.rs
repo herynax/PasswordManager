@@ -145,6 +145,13 @@ enum Command {
         #[arg(long, hide = true)]
         passphrase: Option<String>,
     },
+
+    /// Back up the vault to a directory or a file path
+    Backup {
+        /// Destination directory (needs trailing `/`) or file path; existing
+        /// file is overwritten
+        destination: PathBuf,
+    },
 }
 
 pub fn run() -> Result<()> {
@@ -204,6 +211,7 @@ pub fn run() -> Result<()> {
             copy,
         } => cmd_generate(length, no_symbols, ambiguous, copy),
         Command::Pass { passphrase } => cmd_pass(&path, passphrase),
+        Command::Backup { destination } => cmd_backup(&path, &destination),
     }
 }
 
@@ -633,6 +641,40 @@ fn cmd_pass(path: &Path, passphrase: Option<String>) -> Result<()> {
     unlocked.change_passphrase(new_pass.as_bytes())?;
     save(path, &unlocked)?;
     println!("master passphrase changed");
+    Ok(())
+}
+
+const BACKUP_FILENAME: &str = "passman-vault-backup.enc";
+
+fn resolve_backup_target(destination: &Path) -> PathBuf {
+    let is_dir = destination.is_dir()
+        || destination
+            .to_string_lossy()
+            .ends_with(std::path::MAIN_SEPARATOR);
+    if is_dir {
+        destination.join(BACKUP_FILENAME)
+    } else {
+        destination.to_path_buf()
+    }
+}
+
+fn cmd_backup(path: &Path, destination: &Path) -> Result<()> {
+    unlock(path, "backup")?;
+
+    let bytes = storage::read_vault(path)?;
+    let dst = resolve_backup_target(destination);
+    if let Some(parent) = dst.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    storage::write_vault(&dst, &bytes)?;
+
+    let written = std::fs::read(&dst)?;
+    if written != bytes {
+        return Err(Error::InvalidFormat(
+            "backup verification failed: bytes differ",
+        ));
+    }
+    println!("backup ok: {} bytes -> {}", bytes.len(), dst.display());
     Ok(())
 }
 
