@@ -27,6 +27,9 @@ pub enum Error {
     #[error("no usable key slot for the provided secret")]
     NoUsableSlot,
 
+    #[error("ambiguous target: matches {0}")]
+    Ambiguous(String),
+
     #[error("insecure file permissions (vault must be 0600, owned by the user)")]
     InsecurePermissions,
 

@@ -218,6 +218,50 @@ impl Unlocked {
     pub fn lock(self) {}
 }
 
+impl Unlocked {
+    /// Rewraps the existing DEK under a fresh KEK derived from `new_passphrase`
+    /// in-place, replacing the single passphrase slot. Used by `pass change`.
+    pub fn change_passphrase(&mut self, new_passphrase: &[u8]) -> Result<()> {
+        let idx = self
+            .header
+            .slots
+            .iter()
+            .position(|s| s.slot_type == SlotType::Passphrase)
+            .ok_or(Error::NoUsableSlot)?;
+        assert_eq!(
+            self.header.slots.len(),
+            1,
+            "MVP supports a single passphrase slot"
+        );
+
+        let salt = random_salt()?;
+        let slot_nonce = random_nonce()?;
+        let kek = derive_key(new_passphrase, &salt, &self.header.kdf_params)?;
+
+        // Build a clone with the fresh salt/nonce and an empty placeholder.
+        let mut new_slot = Slot {
+            slot_type: SlotType::Passphrase,
+            salt,
+            nonce: slot_nonce,
+            wrapped_dek: [0u8; WRAPPED_DEK_LEN],
+        };
+        let mut new_header = self.header.clone();
+        new_header.slots[idx] = new_slot.clone();
+        let wrapped_offset = format::slot_wrapped_dek_offset(idx);
+        let header_bytes = encode_header(&new_header);
+        let wrapped_aad = &header_bytes[..wrapped_offset];
+
+        let wrapped = aead::encrypt(&*kek, &slot_nonce, wrapped_aad, &*self.dek)?;
+        if wrapped.len() != WRAPPED_DEK_LEN {
+            return Err(Error::Crypto);
+        }
+        new_slot.wrapped_dek = wrapped.as_slice().try_into().map_err(|_| Error::Crypto)?;
+        new_header.slots[idx] = new_slot;
+        self.header = new_header;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

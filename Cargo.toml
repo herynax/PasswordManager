@@ -23,6 +23,8 @@ getrandom = "0.2"
 libc = "0.2"
 ciborium = "0.2"
 serde = { version = "1", features = ["derive"] }
+clap = { version = "4", features = ["derive", "wrap_help"] }
+rpassword = "7"
 
 [dev-dependencies]
 proptest = "1"
