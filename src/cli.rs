@@ -432,10 +432,38 @@ fn resolve_id(unlocked: &Unlocked, target: &str) -> Result<String> {
     match matches.len() {
         0 => Err(Error::InvalidFormat("no matching entry")),
         1 => Ok(matches[0].id.clone()),
-        _ => {
-            let ids: Vec<&str> = matches.iter().map(|e| e.id.as_str()).collect();
-            Err(Error::Ambiguous(ids.join(", ")))
+        _ => choose_entry(&matches),
+    }
+}
+
+fn entry_label(entry: &Entry) -> String {
+    match &entry.body {
+        EntryBody::Login(l) => {
+            if l.username.is_empty() {
+                "(no username)".to_string()
+            } else {
+                l.username.clone()
+            }
         }
+        EntryBody::Note(n) => truncate(n.body.trim(), 40).to_string(),
+    }
+}
+
+fn choose_entry(matches: &[&Entry]) -> Result<String> {
+    println!("multiple matches:");
+    for (i, entry) in matches.iter().enumerate() {
+        println!("  {}. {}  | {}", i + 1, entry.title, entry_label(entry));
+    }
+    let line = prompt_line("Choose an account by number (or q to abort): ")?;
+    match line.trim() {
+        "q" | "Q" => Err(Error::InvalidFormat("aborted by user")),
+        s => match s.parse::<usize>() {
+            Ok(n) if n >= 1 && n <= matches.len() => Ok(matches[n - 1].id.clone()),
+            _ => {
+                let ids: Vec<&str> = matches.iter().map(|e| e.id.as_str()).collect();
+                Err(Error::Ambiguous(ids.join(", ")))
+            }
+        },
     }
 }
 

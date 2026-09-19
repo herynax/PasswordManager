@@ -28,6 +28,34 @@ fn run(vault: &PathBuf, args: &[&str]) -> (i32, String, String) {
     )
 }
 
+fn run_with_stdin(vault: &PathBuf, args: &[&str], input: &str) -> (i32, String, String) {
+    use std::io::Write;
+    use std::process::{Child, Stdio};
+    let pass = "correct horse battery staple";
+    let mut child: Child = Command::new(bin())
+        .args(args)
+        .arg("--path")
+        .arg(vault)
+        .env("PASSMAN_PASSPHRASE", pass)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    (
+        output.status.code().unwrap_or(-1),
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+    )
+}
+
 #[test]
 fn full_cli_flow() {
     let dir = tmp_dir("flow");
@@ -268,4 +296,59 @@ fn backup_rejects_wrong_passphrase() {
     assert_eq!(output.status.code().unwrap(), 1);
     assert!(String::from_utf8_lossy(&output.stderr).contains("authentication"));
     assert!(!dir.join("x.enc").exists());
+}
+
+#[test]
+fn get_multiple_accounts_shows_menu_and_selects() {
+    let dir = tmp_dir("menu");
+    let vault = dir.join("vault.enc");
+    let (code, _, err) = run(
+        &vault,
+        &["init", "--passphrase", "correct horse battery staple"],
+    );
+    assert_eq!(code, 0, "init stderr: {err}");
+
+    for (u, pw) in [("acc1@gmail.com", "pw-acc1"), ("acc2@gmail.com", "pw-acc2")] {
+        let (code, _, err) = run(
+            &vault,
+            &[
+                "add",
+                "--title",
+                "Steam",
+                "--username",
+                u,
+                "--password",
+                pw,
+                "--url",
+                "https://steamcommunity.com",
+            ],
+        );
+        assert_eq!(code, 0, "add stderr: {err}");
+    }
+
+    // ambiguous title -> menu lists both usernames
+    let (code, out, err) = run(&vault, &["get", "Steam", "--no-copy"]);
+    assert_eq!(code, 1, "no stdin -> ambiguous, stderr: {err}");
+    assert!(out.contains("multiple matches"));
+    assert!(out.contains("acc1@gmail.com"));
+    assert!(out.contains("acc2@gmail.com"));
+    assert!(err.contains("ambiguous"));
+
+    // choose the 2nd via stdin
+    let (code, out, err) = run_with_stdin(&vault, &["get", "Steam", "--no-copy"], "2\n");
+    assert_eq!(code, 0, "select stderr: {err}");
+    assert!(out.contains("acc2@gmail.com"));
+    assert!(!out.contains("pw-acc2"), "password hidden without --reveal");
+
+    // choose 1st
+    let (code, out, err) = run_with_stdin(&vault, &["get", "Steam", "--no-copy"], "1\n");
+    assert_eq!(code, 0, "select stderr: {err}");
+    assert!(out.contains("acc1@gmail.com"));
+
+    // 'q' aborts
+    let (code, _, err) = run_with_stdin(&vault, &["get", "Steam", "--no-copy"], "q\n");
+    assert_eq!(code, 1);
+    assert!(err.contains("aborted"));
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
