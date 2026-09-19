@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+
+# passman local data
+vault.enc
+vault.enc.*
+*.backup
