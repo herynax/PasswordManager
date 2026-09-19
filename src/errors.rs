@@ -15,6 +15,21 @@ pub enum Error {
     #[error("random number generation failed")]
     Rng,
 
+    #[error("invalid vault format: {0}")]
+    InvalidFormat(&'static str),
+
+    #[error("unsupported KDF identifier {0}")]
+    UnsupportedKdf(u8),
+
+    #[error("unsupported cipher identifier {0}")]
+    UnsupportedCipher(u8),
+
+    #[error("no usable key slot for the provided secret")]
+    NoUsableSlot,
+
+    #[error("insecure file permissions (vault must be 0600, owned by the user)")]
+    InsecurePermissions,
+
     #[error("I/O error")]
     Io,
 }
