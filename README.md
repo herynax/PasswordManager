@@ -39,7 +39,7 @@ Argon2id. Ключ не хранится на диске — он живёт т�
 ## Установка и сборка
 
 ```
-git clone <ваш-репозиторий> passman
+git clone https://github.com/herynax/PasswordManager passman
 cd passman
 cargo build --release
 sudo install -m 0755 target/release/passman /usr/local/bin/passman
